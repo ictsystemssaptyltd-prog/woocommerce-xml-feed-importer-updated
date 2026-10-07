@@ -94,7 +94,7 @@ final class WPFI_Admin {
  private function list(){
   echo '<div class="wrap">';
   echo '<h1>XML Feed Importer</h1>';
-  echo '<p><a class="button button-primary" href="'.esc_url($this->url(['action'=>'new'])).'">Add Feed</a> <a class="button" href="'.esc_url(admin_url('admin.php?page=wpfi-logs')).'">View Logs</a></p>';
+  echo '<p><a class="button button-primary" href="'.esc_url($this->url(['action'=>'new'])).'">Add Feed</a> <a class="button" href="'.esc_url($this->url(['action'=>'new','preset'=>'pinnacle'])).'">Add Pinnacle Feed</a> <a class="button" href="'.esc_url(admin_url('admin.php?page=wpfi-logs')).'">View Logs</a></p>';
   echo '<table class="widefat striped"><thead><tr><th>Feed Name</th><th>URL</th><th>Status</th><th>Frequency</th><th>Actions</th></tr></thead><tbody>';
   $feeds=$this->repo->all();
   if(empty($feeds)){
@@ -117,11 +117,18 @@ final class WPFI_Admin {
  }
  private function edit(){
   $id=sanitize_text_field($_GET['id']??'');
-  $f=wp_parse_args($id?($this->repo->get($id)??[]):[],$this->repo->defaults());
+  $preset=sanitize_key($_GET['preset']??'');
+  
+  if($preset==='pinnacle') {
+   $f=$this->repo->pinnacle_preset();
+  } else {
+   $f=wp_parse_args($id?($this->repo->get($id)??[]):[],$this->repo->defaults());
+  }
+  
   $a=$f['auth']??[];
-  $this->log("Feed edit form opened", 'info', ['feed_id'=>$id??'new']);
+  $this->log("Feed edit form opened", 'info', ['feed_id'=>$id??'new','preset'=>$preset]);
   echo '<div class="wrap">';
-  echo '<h1>'.($id?'Edit':'Add').' XML Feed</h1>';
+  echo '<h1>'.($id?'Edit':'Add').' XML Feed'.($preset==='pinnacle'?' (Pinnacle)':'').'</h1>';
   echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" enctype="multipart/form-data">';
   echo '<input type="hidden" name="action" value="wpfi_save_feed">';
   echo '<input type="hidden" name="id" value="'.esc_attr($id).'">';
