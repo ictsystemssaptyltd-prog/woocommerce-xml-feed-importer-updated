@@ -11,6 +11,7 @@ final class WPFI_Admin {
   add_action('admin_post_wpfi_save_feed',[$this,'save']);
   add_action('admin_post_wpfi_delete_feed',[$this,'delete']);
   add_action('admin_post_wpfi_trigger_feed',[$this,'trigger']);
+  add_action('wp_ajax_wpfi_trigger_feed',[$this,'ajax_trigger']);
  }
  public function menu(){
   add_submenu_page('woocommerce','XML Feed Importer','XML Feed Importer','manage_woocommerce','wpfi-feeds',[$this,'page']);
@@ -102,7 +103,7 @@ final class WPFI_Admin {
     .feed-table tr:hover { background-color: #f9f9f9; }
     .feed-actions { white-space: nowrap; }
     .feed-actions a { margin-right: 10px; padding: 5px 10px; text-decoration: none; }
-    .trigger-btn { background-color: #0073aa; color: white; border-radius: 3px; }
+    .trigger-btn { background-color: #0073aa; color: white; border-radius: 3px; cursor: pointer; border: none; padding: 5px 10px; }
     .trigger-btn:hover { background-color: #005a87; }
     .feed-status { font-weight: bold; padding: 5px 10px; border-radius: 3px; }
     .status-enabled { background-color: #d4edda; color: #155724; }
@@ -119,6 +120,10 @@ final class WPFI_Admin {
     .modal-field textarea { resize: vertical; min-height: 80px; font-family: monospace; font-size: 12px; }
     .modal-footer { text-align: right; }
     .modal-footer button { margin-left: 10px; padding: 8px 15px; }
+    .trigger-spinner { display: none; color: #0073aa; margin-right: 10px; }
+    .trigger-status { display: none; margin-top: 15px; padding: 10px; border-radius: 3px; }
+    .trigger-status.success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .trigger-status.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
   </style>';
   echo '<table class="feed-table"><thead><tr><th>Feed Name</th><th>Configuration</th><th>Status</th><th>Frequency</th><th>Actions</th></tr></thead><tbody>';
   $feeds=$this->repo->all();
@@ -196,19 +201,26 @@ final class WPFI_Admin {
        <label for="modalSkipZeroStock" style="display: inline; font-weight: normal;">Skip Zero Stock Items</label>
       </div>
      </div>
+     <div id="triggerStatus" class="trigger-status"></div>
     </div>
     <div class="modal-footer">
-     <button class="button" onclick="closeTriggerModal()">Cancel</button>
-     <button class="button button-primary" onclick="confirmTrigger()">Start Import</button>
+     <button class="button" onclick="closeTriggerModal()" id="cancelBtn">Cancel</button>
+     <button class="button button-primary" onclick="confirmTrigger()" id="startBtn">
+      <span class="trigger-spinner" id="triggerSpinner">⏳</span>
+      Start Import
+     </button>
     </div>
    </div>
   </div>
   <?php
  }
  private function render_trigger_script(){
+  $nonce = wp_create_nonce('wpfi_trigger_nonce');
   ?>
   <script>
    let currentFeedId = '';
+   const triggerNonce = '<?php echo esc_js($nonce); ?>';
+   
    function openTriggerModal(feedId, feedName, feedData) {
     currentFeedId = feedId;
     document.getElementById('modalFeedName').value = feedName;
@@ -255,6 +267,10 @@ final class WPFI_Admin {
     // Set checkbox state
     document.getElementById('modalSkipZeroStock').checked = feedData.skip_zero_stock === 1;
     
+    // Clear status
+    document.getElementById('triggerStatus').style.display = 'none';
+    document.getElementById('triggerStatus').innerHTML = '';
+    
     // Show modal
     document.getElementById('triggerModal').classList.add('active');
    }
@@ -269,9 +285,52 @@ final class WPFI_Admin {
      alert('Feed ID not set');
      return;
     }
-    closeTriggerModal();
-    // Redirect to trigger action with nonce
-    window.location.href = '<?php echo admin_url('admin.php'); ?>?page=wpfi-feeds&action=trigger&id=' + encodeURIComponent(currentFeedId) + '&_wpnonce=' + encodeURIComponent('<?php echo wp_create_nonce('wpfi_trigger_'); ?>' + currentFeedId);
+    
+    const startBtn = document.getElementById('startBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const spinner = document.getElementById('triggerSpinner');
+    const statusDiv = document.getElementById('triggerStatus');
+    
+    // Disable buttons and show spinner
+    startBtn.disabled = true;
+    cancelBtn.disabled = true;
+    spinner.style.display = 'inline';
+    
+    // Make AJAX request
+    fetch(ajaxurl, {
+     method: 'POST',
+     headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+     },
+     body: 'action=wpfi_trigger_feed&feed_id=' + encodeURIComponent(currentFeedId) + '&nonce=' + encodeURIComponent(triggerNonce)
+    })
+    .then(response => response.json())
+    .then(data => {
+     spinner.style.display = 'none';
+     statusDiv.style.display = 'block';
+     
+     if (data.success) {
+      statusDiv.className = 'trigger-status success';
+      statusDiv.innerHTML = '<strong>✓ Import Started</strong><br>' + (data.data?.message || 'Feed import has been initiated.');
+      setTimeout(() => {
+       closeTriggerModal();
+       location.reload();
+      }, 2000);
+     } else {
+      statusDiv.className = 'trigger-status error';
+      statusDiv.innerHTML = '<strong>✗ Import Failed</strong><br>' + (data.data?.message || 'An error occurred while starting the import.');
+      startBtn.disabled = false;
+      cancelBtn.disabled = false;
+     }
+    })
+    .catch(error => {
+     spinner.style.display = 'none';
+     statusDiv.style.display = 'block';
+     statusDiv.className = 'trigger-status error';
+     statusDiv.innerHTML = '<strong>✗ Error</strong><br>Network error: ' + error.message;
+     startBtn.disabled = false;
+     cancelBtn.disabled = false;
+    });
    }
    
    // Close modal when clicking outside
@@ -282,6 +341,51 @@ final class WPFI_Admin {
    });
   </script>
   <?php
+ }
+ public function ajax_trigger(){
+  if(!$this->can()){
+   wp_send_json_error(['message'=>'Permission denied']);
+  }
+  
+  if(!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'],'wpfi_trigger_nonce')){
+   wp_send_json_error(['message'=>'Security check failed']);
+  }
+  
+  $feed_id=sanitize_text_field($_POST['feed_id']??'');
+  if(empty($feed_id)){
+   wp_send_json_error(['message'=>'Feed ID is required']);
+  }
+  
+  $feed=$this->repo->get($feed_id);
+  if(!$feed){
+   wp_send_json_error(['message'=>'Feed not found']);
+  }
+  
+  if(empty($feed['enabled'])){
+   wp_send_json_error(['message'=>'Feed is disabled']);
+  }
+  
+  try{
+   $this->log("Trigger feed via AJAX", 'info', ['feed_id'=>$feed_id, 'feed_name'=>$feed['name']]);
+   
+   if(is_callable([$this->importer,'import'])){
+    $result=$this->importer->import($feed);
+    if($result){
+     $this->log("Feed import completed successfully", 'info', ['feed_id'=>$feed_id]);
+     wp_send_json_success(['message'=>'Feed import completed successfully']);
+    }else{
+     $this->log("Feed import failed", 'error', ['feed_id'=>$feed_id]);
+     wp_send_json_error(['message'=>'Feed import failed. Check logs for details.']);
+    }
+   }else{
+    $this->log("Importer not callable", 'error', ['feed_id'=>$feed_id]);
+    wp_send_json_error(['message'=>'Importer error']);
+   }
+  }catch(Exception $e){
+   $error_msg='Error triggering feed: '.$e->getMessage();
+   $this->log($error_msg, 'error', ['exception'=>$e->getTraceAsString()]);
+   wp_send_json_error(['message'=>$error_msg]);
+  }
  }
  private function edit(){
   $id=sanitize_text_field($_GET['id']??'');
@@ -504,53 +608,8 @@ final class WPFI_Admin {
   }
  }
  public function trigger(){
-  try {
-   $id=sanitize_text_field($_GET['id']??'');
-   $this->log("Trigger feed initiated", 'info', ['feed_id'=>$id]);
-   
-   if(!$this->can()) {
-    $this->log("Permission denied on trigger", 'error');
-    wp_die('Permission denied.');
-   }
-   
-   if(empty($id)) {
-    $this->log("Feed ID missing on trigger", 'error');
-    wp_die('Feed ID is required.');
-   }
-   
-   if(!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'wpfi_trigger_'.$id)) {
-    $this->log("Nonce verification failed on trigger", 'error', ['feed_id'=>$id]);
-    wp_die('Security check failed.');
-   }
-   
-   $feed=$this->repo->get($id);
-   if(!$feed) {
-    $this->log("Feed not found on trigger", 'error', ['feed_id'=>$id]);
-    wp_die('Feed not found.');
-   }
-   
-   if(empty($feed['enabled'])) {
-    $this->log("Cannot trigger disabled feed", 'warning', ['feed_id'=>$id]);
-    wp_die('Feed is disabled.');
-   }
-   
-   $this->log("Triggering feed import", 'info', ['feed_id'=>$id, 'feed_name'=>$feed['name']]);
-   
-   if(is_callable([$this->importer,'import'])) {
-    $result=$this->importer->import($feed);
-    $this->log("Feed import completed", 'info', ['feed_id'=>$id, 'result'=>$result?'success':'failed']);
-   } else {
-    $this->log("Importer not callable", 'error', ['feed_id'=>$id]);
-    wp_die('Importer error.');
-   }
-   
-   wp_safe_redirect($this->url(['notice'=>'triggered']));
-   exit;
-  } catch(Exception $e) {
-   $error_msg='Error triggering feed: '.$e->getMessage();
-   $this->log($error_msg, 'error', ['exception'=>$e->getTraceAsString()]);
-   wp_die($error_msg);
-  }
+  // This method is deprecated in favor of ajax_trigger
+  wp_die('Please use the modal interface to trigger imports.');
  }
  private function format_params($params){
   if(empty($params))return '';
