@@ -6,18 +6,14 @@ final class WPFI_Importer {
  public function import(array $feed){ 
   if (($feed['format']??'xml')==='csv') return $this->import_csv($feed); 
   return $this->import_xml($feed); 
- }
+ } 
  public function log_exception($feed, Throwable $e) {
-   $this->logger->write(
-      $feed,
-      'critical',
-      'Background import error: ' . $e->getMessage(),
-      [
-         'file' => $e->getFile(),
-         'line' => $e->getLine(),
-         'trace' => $e->getTraceAsString(),
-      ]
-   );
+  $this->logger->write(
+   $feed,
+   'critical',
+   'Background import error: ' . $e->getMessage(),
+   ['file' => $e->getFile(), 'line' => $e->getLine(), 'trace' => $e->getTraceAsString()]
+  );
  }
  private function request($feed){
   $url=$this->authenticated_url($feed);
@@ -140,12 +136,10 @@ final class WPFI_Importer {
   foreach((array)$map as $k=>$s) {
    $v[$k]=$this->value($node,$s);
   }
-   
   if($k==='sale_price' && isset($feed['calculations']['sale_price'])) {
    $formula=$feed['calculations']['sale_price'];
    $v['sale_price']=$this->calculate_value($v, $formula);
   }
-   
   return $v;
  }
  private function value($node,$s){
@@ -232,21 +226,13 @@ final class WPFI_Importer {
   $params=is_array($a['query_params']??null)?$a['query_params']:[];
   $path_params=is_array($a['path_params']??null)?$a['path_params']:[];
   $template=trim((string)($a['path_template']??''));
-  if($template!==''){
-   $url=$template;
-  }
+  if($template!==''){$url=$template;}
   if(!empty($path_params)){
    $url=rtrim($url,'/');
    foreach($path_params as $key=>$value){
     $placeholder='{'.$key.'}';
-    if(strpos($url,$placeholder)!==false){
-     $url=str_replace($placeholder,rawurlencode((string)$value),$url);
-     continue;
-    }
-    if(strpos($url,'/{'.$key.'}')!==false){
-     $url=str_replace('/{'.$key.'}','/'.rawurlencode((string)$value),$url);
-     continue;
-    }
+    if(strpos($url,$placeholder)!==false){$url=str_replace($placeholder,rawurlencode((string)$value),$url); continue;}
+    if(strpos($url,'/{'.$key.'}')!==false){$url=str_replace('/{'.$key.'}','/'.rawurlencode((string)$value),$url); continue;}
     $url.='/'.rawurlencode((string)$key).'/'.rawurlencode((string)$value);
    }
   }
@@ -272,10 +258,7 @@ final class WPFI_Importer {
   foreach($lines as $line){
    if(trim($line)==='')continue;
    $cols=str_getcsv($line,$cfg['delimiter']??',',$cfg['enclosure']??'"');
-   if($header===null){
-    $header=$cols;
-    continue;
-   }
+   if($header===null){$header=$cols; continue;}
    $rows[] = array_combine($header,$cols);
   }
   return $rows;
@@ -300,4 +283,4 @@ final class WPFI_Importer {
  private function find_product_by_identifier($feed,$id,$variation=false){ return 0; }
  private function save_identifier_meta($feed,$id,$product_id){ }
  private function ensure_categories($category){ return []; }
- }
+}

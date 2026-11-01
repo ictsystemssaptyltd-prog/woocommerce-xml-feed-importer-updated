@@ -5,9 +5,6 @@ final class WPFI_Logger {
     const OPTION = 'wpfi_import_logs';
     const LIMIT = 500;
 
-    /**
-     * Write a log entry
-     */
     public function write($feed, $level, $message, array $context = []) {
         $level = sanitize_key($level);
         $message = is_scalar($message) ? trim((string) $message) : wp_json_encode($message);
@@ -57,9 +54,6 @@ final class WPFI_Logger {
         }
     }
 
-    /**
-     * Get all logs
-     */
     public function all($limit = 200) {
         $logs = get_option(self::OPTION, []);
         if (!is_array($logs)) {
@@ -68,9 +62,6 @@ final class WPFI_Logger {
         return array_slice($logs, 0, absint($limit));
     }
 
-    /**
-     * Clear all logs
-     */
     public function clear() {
         delete_option(self::OPTION);
     }
