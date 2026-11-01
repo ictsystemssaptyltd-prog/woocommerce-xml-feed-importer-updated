@@ -1,6 +1,6 @@
 <?php
 if (!defined('ABSPATH')) exit;
-
+ 
 final class WPFI_Scheduler {
     const HOOK = 'wpfi_import_feed';
     
@@ -99,27 +99,18 @@ final class WPFI_Scheduler {
             return false;
         }
 
-        try {
-            $feed = $this->repo->get($id);
-            if (!$feed) {
-                return false;
-            }
-
-            if (empty($feed['enabled'])) {
-                return false;
-            }
-
-            return $this->importer->import($feed);
-        } catch (Throwable $e) {
-            $feed = $this->repo->get($id);
-            if ($feed && method_exists($this->importer, 'log_exception')) {
-                $this->importer->log_exception($feed, $e);
-            }
-
-            error_log('[WPFI] Background import failed for feed ' . $id . ': ' . $e->getMessage());
-            error_log($e->getTraceAsString());
-
+        // Get feed
+        $feed = $this->repo->get($id);
+        if (!$feed) {
             return false;
         }
+
+        // Only import if enabled
+        if (empty($feed['enabled'])) {
+            return false;
+        }
+
+        // Run import
+        return $this->importer->import($feed);
     }
 }
