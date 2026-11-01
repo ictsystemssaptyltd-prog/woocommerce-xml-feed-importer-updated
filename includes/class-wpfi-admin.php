@@ -86,8 +86,8 @@ final class WPFI_Admin {
       <div id="triggerStatus" class="trigger-status"></div>
      </div>
      <div class="modal-footer">
-      <button class="button" onclick="closeTriggerModal()" id="cancelBtn">Cancel</button>
-      <button class="button button-primary" onclick="confirmTrigger()" id="startBtn"><span class="trigger-spinner" id="triggerSpinner">⏳</span>Start Import</button>
+      <button type="button" class="button" id="cancelBtn">Cancel</button>
+      <button type="button" class="button button-primary" id="startBtn"><span class="trigger-spinner" id="triggerSpinner">⏳</span>Start Import</button>
      </div>
     </div>
    </div>
@@ -150,7 +150,10 @@ final class WPFI_Admin {
     }
 
     function closeTriggerModal() {
-      document.getElementById('triggerModal').classList.remove('active');
+      var modal = document.getElementById('triggerModal');
+      if (modal) {
+        modal.classList.remove('active');
+      }
       currentFeedId = '';
     }
 
@@ -219,12 +222,23 @@ final class WPFI_Admin {
 
     document.addEventListener('DOMContentLoaded', function() {
       var modal = document.getElementById('triggerModal');
+      var cancelBtn = document.getElementById('cancelBtn');
+      var startBtn = document.getElementById('startBtn');
+
       if (modal) {
         modal.addEventListener('click', function(e) {
           if (e.target === this) {
             closeTriggerModal();
           }
         });
+      }
+
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', closeTriggerModal);
+      }
+
+      if (startBtn) {
+        startBtn.addEventListener('click', confirmTrigger);
       }
 
       document.querySelectorAll('.trigger-btn').forEach(function(button) {
