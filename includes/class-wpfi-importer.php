@@ -7,6 +7,18 @@ final class WPFI_Importer {
   if (($feed['format']??'xml')==='csv') return $this->import_csv($feed); 
   return $this->import_xml($feed); 
  }
+ public function log_exception($feed, Throwable $e) {
+   $this->logger->write(
+      $feed,
+      'critical',
+      'Background import error: ' . $e->getMessage(),
+      [
+         'file' => $e->getFile(),
+         'line' => $e->getLine(),
+         'trace' => $e->getTraceAsString(),
+      ]
+   );
+ }
  private function request($feed){
   $url=$this->authenticated_url($feed);
   $r=wp_remote_get($url,['timeout'=>120,'redirection'=>3,'user-agent'=>'WPFI/'.WPFI_VERSION,'headers'=>$this->auth_headers($feed)]);
@@ -128,13 +140,13 @@ final class WPFI_Importer {
   foreach((array)$map as $k=>$s) {
    $v[$k]=$this->value($node,$s);
   }
-  
+   
   // Apply formula-based calculations after extracting all values
   if($k==='sale_price' && isset($feed['calculations']['sale_price'])) {
    $formula=$feed['calculations']['sale_price'];
    $v['sale_price']=$this->calculate_value($v, $formula);
   }
-  
+   
   return $v;
  }
  private function value($node,$s){
@@ -146,17 +158,17 @@ final class WPFI_Importer {
  }
  private function calculate_value($values, $formula){
   if(empty($formula) || empty($values)) return '';
-  
+   
   // Support formulas like: (ProdPriceExclVAT * 1.15) * 1.20
   $result=$formula;
-  
+   
   // Replace field names with actual values
   foreach($values as $field=>$value) {
    if(is_numeric($value)) {
     $result=str_replace($field, (float)$value, $result);
    }
   }
-  
+   
   // Evaluate the formula safely
   try {
    // Remove any non-numeric/non-operator characters to prevent code injection
@@ -167,7 +179,7 @@ final class WPFI_Importer {
   } catch(Throwable $e) {
    return '';
   }
-  
+   
   return '';
  }
  private function apply_values($p,$v,$id){
