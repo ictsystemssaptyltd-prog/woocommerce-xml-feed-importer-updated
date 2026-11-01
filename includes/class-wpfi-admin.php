@@ -12,6 +12,7 @@ final class WPFI_Admin {
    add_action('admin_post_wpfi_delete_feed',[$this,'delete']);
    add_action('admin_post_wpfi_trigger_feed',[$this,'trigger']);
    add_action('wp_ajax_wpfi_trigger_feed',[$this,'ajax_trigger']);
+   add_action('wp_ajax_nopriv_wpfi_trigger_feed',[$this,'ajax_trigger']);
   }
   public function menu(){
    add_submenu_page('woocommerce','XML Feed Importer','XML Feed Importer','manage_woocommerce','wpfi-feeds',[$this,'page']);
@@ -64,7 +65,7 @@ final class WPFI_Admin {
    echo '<style> .feed-table { width: 100%; border-collapse: collapse; margin-top: 20px; } .feed-table th, .feed-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; } .feed-table th { background: #f8f8f8; } .trigger-btn { display:inline-block; margin-right:6px; } .trigger-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:99999; align-items:center; justify-content:center; } .trigger-modal.active { display:flex; } .modal-content { background:#fff; width:min(700px,90vw); max-height:90vh; overflow:auto; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,0.2); } .modal-header { padding:16px 20px; font-size:18px; font-weight:600; border-bottom:1px solid #ddd; } .modal-body { padding:16px 20px; } .modal-field { margin-bottom:12px; } .modal-field label { display:block; font-weight:600; margin-bottom:6px; } .modal-field input, .modal-field textarea { width:100%; box-sizing:border-box; padding:8px 10px; } .modal-footer { border-top:1px solid #ddd; padding:16px 20px; display:flex; justify-content:flex-end; gap:10px; } .trigger-status { display:none; margin-top:12px; padding:10px; border-radius:4px; } .trigger-status.success { display:block; background:#edf7ed; color:#1e7a1e; border:1px solid #b9e5b9; } .trigger-status.error { display:block; background:#fdf0f0; color:#9f2d2d; border:1px solid #f2b7b7; } .trigger-spinner { display:none; margin-right:6px; } </style>';
    echo '<table class="feed-table"><thead><tr><th>Feed Name</th><th>Configuration</th><th>Status</th><th>Frequency</th><th>Actions</th></tr></thead><tbody>';
    $feeds=$this->repo->all();
-   if(empty($feeds)){ echo '<tr><td colspan="5">No feeds configured yet.</td></tr>'; } else { foreach($feeds as $f){ $feed_id=$f['id']??''; $feed_json = wp_json_encode($f, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); $name=esc_html($f['name'] ?? 'Unnamed Feed'); $format=strtoupper((string)($f['format'] ?? 'xml')); $enabled = !empty($f['enabled']) ? 'Enabled' : 'Disabled'; $schedule = esc_html($f['schedule'] ?? 'manual'); $config = '<strong>URL:</strong> '.esc_html(substr($f['url'] ?? '', 0, 80)).(strlen((string)($f['url'] ?? '')) > 80 ? '…' : ''); echo '<tr><td>'.$name.'</td><td>'.$config.'</td><td>'.$enabled.'</td><td>'.$schedule.'</td><td><a class="button button-small" href="'.esc_url($this->url(['action'=>'edit','id'=>$feed_id])).'">Edit</a> <button type="button" class="button button-small trigger-btn" data-feed-id="'.esc_attr($feed_id).'" data-feed-name="'.esc_attr($name).'" data-feed="'.esc_attr($feed_json).'">Trigger</button> <a class="button button-small" href="'.esc_url($this->url(['action'=>'delete','id'=>$feed_id])).'" onclick="return confirm(\'Delete feed?\')">Delete</a></td></tr>'; } }
+   if(empty($feeds)){ echo '<tr><td colspan="5">No feeds configured yet.</td></tr>'; } else { foreach($feeds as $f){ $feed_id=$f['id']??''; $feed_json = wp_json_encode($f, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); $name=esc_html($f['name'] ?? 'Unnamed Feed'); $enabled = !empty($f['enabled']) ? 'Enabled' : 'Disabled'; $schedule = esc_html($f['schedule'] ?? 'manual'); $config = '<strong>URL:</strong> '.esc_html(substr($f['url'] ?? '', 0, 80)).(strlen((string)($f['url'] ?? '')) > 80 ? '…' : ''); echo '<tr><td>'.$name.'</td><td>'.$config.'</td><td>'.$enabled.'</td><td>'.$schedule.'</td><td><a class="button button-small" href="'.esc_url($this->url(['action'=>'edit','id'=>$feed_id])).'">Edit</a> <button type="button" class="button button-small trigger-btn" data-feed-id="'.esc_attr($feed_id).'" data-feed-name="'.esc_attr($name).'" data-feed="'.esc_attr($feed_json).'">Trigger</button> <a class="button button-small" href="'.esc_url($this->url(['action'=>'delete','id'=>$feed_id])).'" onclick="return confirm(\'Delete feed?\')">Delete</a></td></tr>'; } }
    echo '</tbody></table>';
    $this->render_trigger_modal();
    echo '</div>';
@@ -94,6 +95,7 @@ final class WPFI_Admin {
   <?php }
   private function render_trigger_script(){ $nonce = wp_create_nonce('wpfi_trigger_nonce'); ?>
   <script>
+  window.WPFITriggerModal = window.WPFITriggerModal || {};
   (function() {
     var currentFeedId = '';
     var triggerNonce = <?php echo wp_json_encode($nonce); ?>;
@@ -174,18 +176,25 @@ final class WPFI_Admin {
 
       fetch(ajaxurl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
         body: 'action=wpfi_trigger_feed&feed_id=' + encodeURIComponent(currentFeedId) + '&nonce=' + encodeURIComponent(triggerNonce)
       })
       .then(function(response) {
         return response.text().then(function(text) {
-          var data = null;
+          if (!text) {
+            throw new Error('Empty AJAX response from server.');
+          }
+          var parsed = null;
           try {
-            data = text ? JSON.parse(text) : null;
+            parsed = JSON.parse(text);
           } catch (e) {
             throw new Error('Non-JSON AJAX response: ' + text);
           }
-          return data;
+          return parsed;
         });
       })
       .then(function(data) {
@@ -214,11 +223,18 @@ final class WPFI_Admin {
         spinner.style.display = 'none';
         statusDiv.style.display = 'block';
         statusDiv.className = 'trigger-status error';
-        statusDiv.innerHTML = '<strong>✗ Error</strong><br>' + error.message;
+        statusDiv.innerHTML = '<strong>✗ Import Failed</strong><br>' + (error && error.message ? error.message : 'Unknown AJAX error');
         startBtn.disabled = false;
         cancelBtn.disabled = false;
       });
     }
+
+    window.WPFITriggerModal.open = openTriggerModal;
+    window.WPFITriggerModal.close = closeTriggerModal;
+    window.WPFITriggerModal.confirm = confirmTrigger;
+    window.openTriggerModal = openTriggerModal;
+    window.closeTriggerModal = closeTriggerModal;
+    window.confirmTrigger = confirmTrigger;
 
     document.addEventListener('DOMContentLoaded', function() {
       var modal = document.getElementById('triggerModal');
@@ -226,11 +242,7 @@ final class WPFI_Admin {
       var startBtn = document.getElementById('startBtn');
 
       if (modal) {
-        modal.addEventListener('click', function(e) {
-          if (e.target === this) {
-            closeTriggerModal();
-          }
-        });
+        modal.addEventListener('click', function(e) { if (e.target === this) { closeTriggerModal(); } });
       }
 
       if (cancelBtn) {
@@ -261,7 +273,8 @@ final class WPFI_Admin {
   public function ajax_trigger(){
    if(!$this->can()){ error_log('[WPFI] Trigger denied: no permission'); wp_send_json_error(['message'=>'Permission denied']); }
    if(!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'],'wpfi_trigger_nonce')){ error_log('[WPFI] Trigger denied: bad nonce'); wp_send_json_error(['message'=>'Security check failed']); }
-   $feed_id=sanitize_text_field($_POST['feed_id']??''); error_log('[WPFI] Trigger request for feed_id=' . $feed_id);
+   $feed_id=sanitize_text_field($_POST['feed_id']??'');
+   error_log('[WPFI] Trigger request for feed_id=' . $feed_id);
    if(empty($feed_id)){ wp_send_json_error(['message'=>'Feed ID is required']); }
    $feed=$this->repo->get($feed_id); if(!$feed){ error_log('[WPFI] Trigger failed: feed not found ' . $feed_id); wp_send_json_error(['message'=>'Feed not found']); }
    if(empty($feed['enabled'])){ error_log('[WPFI] Trigger failed: feed disabled ' . $feed_id); wp_send_json_error(['message'=>'Feed is disabled']); }
