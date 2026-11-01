@@ -11,16 +11,10 @@ final class WPFI_Scheduler {
         $this->repo = $r;
         $this->importer = $i;
         
-        // Register custom cron schedules
         add_filter('cron_schedules', [$this, 'schedules']);
-        
-        // Register cron job handler
         add_action(self::HOOK, [$this, 'run'], 10, 1);
     }
 
-    /**
-     * Register custom cron schedules
-     */
     public function schedules($schedules) {
         $schedules['wpfi_15m'] = [
             'interval' => 15 * MINUTE_IN_SECONDS,
@@ -40,9 +34,6 @@ final class WPFI_Scheduler {
         return $schedules;
     }
 
-    /**
-     * Clear all scheduled imports
-     */
     public function clear() {
         $feeds = $this->repo->all();
         if (is_array($feeds)) {
@@ -55,20 +46,13 @@ final class WPFI_Scheduler {
         }
     }
 
-    /**
-     * Synchronize all scheduled imports
-     */
     public function sync() {
-        // Clear existing schedules
         $this->clear();
-
-        // Get available schedules
         $schedules = wp_get_schedules();
         if (!is_array($schedules)) {
             return;
         }
 
-        // Schedule each enabled feed
         $feeds = $this->repo->all();
         if (is_array($feeds)) {
             foreach ($feeds as $feed) {
@@ -77,9 +61,7 @@ final class WPFI_Scheduler {
                 $url = $feed['url'] ?? '';
                 $frequency = $feed['frequency'] ?? 'daily';
 
-                // Only schedule if feed is enabled and has required fields
                 if (!empty($id) && !empty($enabled) && !empty($url) && isset($schedules[$frequency])) {
-                    // Schedule with slight delay to avoid thundering herd
                     wp_schedule_event(
                         time() + 2 * MINUTE_IN_SECONDS,
                         $frequency,
@@ -91,26 +73,31 @@ final class WPFI_Scheduler {
         }
     }
 
-    /**
-     * Run scheduled import for a feed
-     */
     public function run($id) {
         if (empty($id)) {
             return false;
         }
 
-        // Get feed
-        $feed = $this->repo->get($id);
-        if (!$feed) {
+        try {
+            $feed = $this->repo->get($id);
+            if (!$feed) {
+                return false;
+            }
+
+            if (empty($feed['enabled'])) {
+                return false;
+            }
+
+            return $this->importer->import($feed);
+        } catch (Throwable $e) {
+            $feed = $this->repo->get($id);
+            if ($feed && method_exists($this->importer, 'log_exception')) {
+                $this->importer->log_exception($feed, $e);
+            }
+
+            error_log('[WPFI] Background import failed for feed ' . $id . ': ' . $e->getMessage());
+            error_log($e->getTraceAsString());
             return false;
         }
-
-        // Only import if enabled
-        if (empty($feed['enabled'])) {
-            return false;
-        }
-
-        // Run import
-        return $this->importer->import($feed);
     }
 }
